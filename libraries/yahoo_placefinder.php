@@ -14,10 +14,22 @@
  * @link      http://github.com/ollierattue/codeigniter-yahoo-placefinder
  */
 
-class Placefinder 
+class Yahoo_Geo
 {
 	var $yahoo_geo_app_id;
 	var $CI;
+	protected $method = 'GET';
+	protected $params;
+	public $format = 'json';
+	
+	protected static function buildRequest($params)
+	{
+		foreach($params as $key => $val)
+			$requestString[] = $key.'='.$val;
+		
+		return implode('&',$requestString);
+	}
+	
 
 	/**
 	 * Constructor
@@ -57,12 +69,13 @@ class Placefinder
 			return FALSE;
 		}
 
-		$url = "http://where.yahooapis.com/geocode?location={$location}&flags=P&appid={$this->yahoo_geo_app_id}";
+		$url = "http://where.yahooapis.com/geocode?format=".$this->format."&location={$location}&flags=P&appid={$this->yahoo_geo_app_id}";
 
-		$geo_data = $this->do_curl($url);
+		$this->method = 'GET';
+		$geo_data = json_decode($this->do_curl($url),true);
 
-		$geo_data['longitude'] = $geo_data['ResultSet']['Result'][0]['longitude'];
-		$geo_data['latitude'] = $geo_data['ResultSet']['Result'][0]['latitude'];
+		$geo_data['longitude'] = $geo_data['Result']['longitude'];
+		$geo_data['latitude'] = $geo_data['Result']['latitude'];
 
 		return $geo_data;
 	}
@@ -79,6 +92,8 @@ class Placefinder
 
 	function reverse_geocode($lat = NULL, $lng = NULL)
 	{
+		$geo_data = array();
+		
 		$latlng = urlencode($lat.', '.$lng);
 
 		if (!$this->yahoo_geo_app_id)
@@ -86,11 +101,44 @@ class Placefinder
 			return FALSE;
 		}
 
-		$url = "http://where.yahooapis.com/geocode?location={$latlng}&flags=P&gflags=R&appid={$this->yahoo_geo_app_id}";
+		$url = "http://where.yahooapis.com/geocode?format=".$this->format."&location={$latlng}&flags=PT&gflags=R&appid={$this->yahoo_geo_app_id}";
 
-		$geo_data = $this->do_curl($url);
+
+		$this->method = 'GET';
+		$geo_data = json_decode($this->do_curl($url),true);
+
+		$geo_data['zip'] = $geo_data['Result']['postal'];
+		$geo_data['country']['name'] = $geo_data['Result']['country'];
+		$geo_data['country']['name_short'] = $geo_data['Result']['countrycode'];
+		$geo_data['state']['name'] = $geo_data['Result']['state'];
+		$geo_data['state']['name_short'] = $geo_data['Result']['statecode'];
+		$geo_data['city'] = $geo_data['Result']['city'];
+		$geo_data['street_address'] = $geo_data['Result']['street'];
+		$geo_data['street_number'] = $geo_data['Result']['house'];
 
 		return $geo_data;
+	}
+	
+	// --------------------------------------------------------------------
+	
+	/**
+	* Getting timezone by coordinates
+	* @access public
+	* @param string
+	* @param string
+	* @return array or FALSE
+	*/
+
+	function timezoneByCoordinates($lat = NULL, $lng = NULL)
+	{
+		$geo_data = $this->reverse_geocode($lat, $lng);
+		if (isset($geo_data['ResultSet']))
+			return $geo_data['ResultSet']['Result'][0]['timezone'];
+		else
+		{
+			log_message('error','Timezone not found: for latitude: '.$lat.' longitude:'.$lng);
+			return false;
+		}
 	}
 
 	// --------------------------------------------------------------------
@@ -110,6 +158,15 @@ class Placefinder
 		// Set the URL
 		curl_setopt ($curlSession, CURLOPT_URL, $url);
 		
+		if ($this->method == 'POST')
+		{
+			// post
+			curl_setopt ($curlSession, CURLOPT_POST, 1);
+			
+			// Set the POST variables
+			curl_setopt ($curlSession, CURLOPT_POSTFIELDS, $this::buildRequest($this->params));
+		}
+		
 		// No headers, please
 		curl_setopt ($curlSession, CURLOPT_HEADER, 0);
 		
@@ -128,12 +185,12 @@ class Placefinder
 		$rawresponse = curl_exec($curlSession);
 
 		// Store the raw response as it's useful to see for debugging 
-		$this->CI->session->set_userdata('rawrespons', $rawresponse);
+		//$this->CI->session->set_userdata('rawrespons', $rawresponse);
 
 		// Close the cURL session
 		curl_close ($curlSession);
 
-		$geo_data = unserialize($rawresponse);
+		$geo_data = ($rawresponse);
 
 		// Convenience array names
 
